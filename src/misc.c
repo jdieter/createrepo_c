@@ -1256,6 +1256,46 @@ cr_write_to_file(GError **err, gchar *filename, const char *format, ...)
     return ret;
 }
 
+gchar *cr_read_from_file(GError **err, gchar *filename, size_t *file_size) {
+    assert(filename);
+    assert(!err || *err == NULL);
+    assert(file_size);
+
+    *file_size = 0;
+    FILE *f = fopen(filename, "r");
+    if (!f) {
+        g_set_error(err, ERR_DOMAIN, CRE_IO,
+                    "Cannot open %s: %s", filename, g_strerror(errno));
+        return NULL;
+    }
+
+    if(fseek(f, 0, SEEK_END) < 0) {
+        g_set_error(err, ERR_DOMAIN, CRE_IO,
+                    "Cannot seek to end of %s: %s", filename,
+                    g_strerror(errno));
+        return NULL;
+    }
+
+    *file_size = ftell(f);
+    if(fseek(f, 0, SEEK_SET) < 0) {
+        g_set_error(err, ERR_DOMAIN, CRE_IO,
+                    "Cannot seek to start of %s: %s", filename,
+                    g_strerror(errno));
+        *file_size = 0;
+        return NULL;
+    }
+
+    gchar *data = g_malloc(*file_size);
+    if(fread(data, 1, *file_size, f) != *file_size) {
+        g_set_error(err, ERR_DOMAIN, CRE_IO,
+                    "Cannot read from %s: %s", filename, g_strerror(errno));
+        *file_size = 0;
+        return NULL;
+    }
+    fclose(f);
+    return data;
+}
+
 static gboolean
 cr_run_command(char **cmd, const char *working_dir, GError **err)
 {

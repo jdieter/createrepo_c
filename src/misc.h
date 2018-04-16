@@ -417,6 +417,14 @@ cr_warning_cb(cr_XmlParserWarningType type,
 gboolean
 cr_write_to_file(GError **err, gchar *filename, const char *format, ...);
 
+/** Read contents of file into memory.
+ * @param err       GError **
+ * @param filename  Filename
+ * @param filesize  Pointer to size_t that will contain file size
+ */
+gchar
+*cr_read_from_file(GError **err, gchar *filename, size_t *file_size);
+
 typedef enum {
     CR_CP_DEFAULT       = (1<<0), /*!<
         No attributes - default */
