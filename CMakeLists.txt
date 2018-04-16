@@ -34,7 +34,13 @@ find_package(LZMA REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(Sqlite3 REQUIRED)
 find_package(ZLIB REQUIRED)
-
+find_package(PkgConfig REQUIRED)
+find_library(ZCHUNKLIB NAMES zck)
+IF (ZCHUNKLIB)
+	MESSAGE("Found zchunk: ${ZCHUNKLIB}")
+ELSE (ZCHUNKLIB)
+	MESSAGE("Didn't find zchunk")
+ENDIF (ZCHUNKLIB)
 # Add include dirs
 
 include_directories(${GLIB2_INCLUDE_DIRS})
