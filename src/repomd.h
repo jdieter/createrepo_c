@@ -79,10 +79,13 @@ typedef struct {
     char *checksum;             /*!< checksum of file */
     char *checksum_type;        /*!< checksum type */
     char *checksum_open;        /*!< checksum of uncompressed file */
-    char *checksum_open_type;   /*!< checksum type of uncompressed file*/
+    char *checksum_open_type;   /*!< checksum type of uncompressed file */
+    char *checksum_header;      /*!< checksum of header */
+    char *checksum_header_type; /*!< checksum type of header */
     gint64 timestamp;           /*!< mtime of the file */
     gint64 size;                /*!< size of file in bytes */
     gint64 size_open;           /*!< size of uncompressed file in bytes */
+    gint64 size_header;         /*!< header size */
     int db_ver;                 /*!< version of database */
 
     GStringChunk *chunk;        /*!< String chunk */

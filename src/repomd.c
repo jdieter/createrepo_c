@@ -41,6 +41,9 @@
 typedef struct _contentStat {
     char *checksum;
     gint64 size;
+    cr_ChecksumType hdr_checksum_type;
+    char *hdr_checksum;
+    gint64 hdr_size;
 } contentStat;
 
 cr_DistroTag *
@@ -100,10 +103,17 @@ cr_repomd_record_copy(const cr_RepomdRecord *orig)
                                                 orig->checksum_open);
     rec->checksum_open_type = cr_safe_string_chunk_insert(rec->chunk,
                                                 orig->checksum_open_type);
-    rec->timestamp = orig->timestamp;
-    rec->size      = orig->size;
-    rec->size_open = orig->size_open;
-    rec->db_ver    = orig->db_ver;
+    rec->timestamp   = orig->timestamp;
+    rec->size        = orig->size;
+    rec->size_open   = orig->size_open;
+    rec->size_header = orig->size_header;
+    rec->db_ver      = orig->db_ver;
+    if(orig->checksum_header)
+        rec->checksum_header      = cr_safe_string_chunk_insert(rec->chunk,
+                                                    orig->checksum_header);
+    if(orig->checksum_header_type)
+        rec->checksum_header_type = cr_safe_string_chunk_insert(rec->chunk,
+                                                    orig->checksum_header_type);
 
     return rec;
 }
@@ -173,6 +183,9 @@ cr_get_compressed_content_stat(const char *filename,
 
     contentStat* result = g_malloc(sizeof(contentStat));
     if (result) {
+        result->hdr_checksum = cwfile->stat->hdr_checksum;
+        result->hdr_checksum_type = cwfile->stat->hdr_checksum_type;
+        result->hdr_size = cwfile->stat->hdr_size;
         result->checksum = cr_checksum_final(checksum, NULL);
         result->size = size;
     } else {
@@ -217,7 +230,6 @@ cr_repomd_record_fill(cr_RepomdRecord *md,
         return CRE_NOFILE;
     }
 
-
     // Compute checksum of compressed file
 
     if (!md->checksum_type || !md->checksum) {
@@ -253,6 +265,7 @@ cr_repomd_record_fill(cr_RepomdRecord *md,
         {
             // File compressed by supported algorithm
             contentStat *open_stat = NULL;
+            const char *hdr_checksum_str;
 
             open_stat = cr_get_compressed_content_stat(path, checksum_t, &tmp_err);
             if (tmp_err) {
@@ -267,6 +280,12 @@ cr_repomd_record_fill(cr_RepomdRecord *md,
             md->checksum_open = g_string_chunk_insert(md->chunk, open_stat->checksum);
             if (md->size_open == G_GINT64_CONSTANT(-1))
                 md->size_open = open_stat->size;
+            hdr_checksum_str = cr_checksum_name_str(open_stat->hdr_checksum_type);
+            md->checksum_header_type = g_string_chunk_insert(md->chunk, hdr_checksum_str);
+            md->checksum_header = g_string_chunk_insert(md->chunk, open_stat->hdr_checksum);
+            if (md->size_header == G_GINT64_CONSTANT(-1))
+                md->size_header = open_stat->hdr_size;
+            g_free(open_stat->hdr_checksum);
             g_free(open_stat->checksum);
             g_free(open_stat);
         } else {
@@ -278,6 +297,9 @@ cr_repomd_record_fill(cr_RepomdRecord *md,
             md->checksum_open_type = NULL;
             md->checksum_open = NULL;
             md->size_open = G_GINT64_CONSTANT(-1);
+            md->checksum_header_type = NULL;
+            md->checksum_header = NULL;
+            md->size_header = G_GINT64_CONSTANT(-1);
         }
     }
 
@@ -323,14 +345,17 @@ cr_repomd_record_compress_and_fill(cr_RepomdRecord *record,
     gchar *clocation_real, *clocation_href;
     gchar *checksum = NULL;
     gchar *cchecksum = NULL;
+    gchar *hdrchecksum = NULL;
     int readed;
     char buf[BUFFER_SIZE];
     CR_FILE *cw_plain;
     CR_FILE *cw_compressed;
     gint64 gf_size = G_GINT64_CONSTANT(-1), cgf_size = G_GINT64_CONSTANT(-1);
     gint64 gf_time = G_GINT64_CONSTANT(-1), cgf_time = G_GINT64_CONSTANT(-1);
+    gint64 gf_hdrsize = G_GINT64_CONSTANT(-1);
     struct stat gf_stat, cgf_stat;
     const char *checksum_str = cr_checksum_name_str(checksum_type);
+    const char *hdr_checksum_str = NULL;
     GError *tmp_err = NULL;
 
     assert(record);
@@ -467,21 +492,28 @@ cr_repomd_record_compress_and_fill(cr_RepomdRecord *record,
     record->checksum_type = g_string_chunk_insert(record->chunk, checksum_str);
     record->checksum_open = NULL;
     record->checksum_open_type = NULL;
+    record->checksum_header = NULL;
+    record->checksum_header_type = NULL;
     record->timestamp = gf_time;
     record->size = gf_size;
     record->size_open = G_GINT64_CONSTANT(-1);
+    record->size_header = G_GINT64_CONSTANT(-1);
 
     crecord->checksum = g_string_chunk_insert(crecord->chunk, cchecksum);
     crecord->checksum_type = g_string_chunk_insert(crecord->chunk, checksum_str);
     crecord->checksum_open = g_string_chunk_insert(record->chunk, checksum);
     crecord->checksum_open_type = g_string_chunk_insert(record->chunk, checksum_str);
+    crecord->checksum_header = g_string_chunk_insert(crecord->chunk, hdrchecksum);
+    crecord->checksum_header_type = g_string_chunk_insert(crecord->chunk, hdr_checksum_str);
     crecord->timestamp = cgf_time;
     crecord->size = cgf_size;
     crecord->size_open = gf_size;
+    crecord->size_header = gf_hdrsize;
 
 end:
     g_free(checksum);
     g_free(cchecksum);
+    g_free(hdrchecksum);
 
     return ret;
 }
@@ -507,11 +539,15 @@ cr_repomd_record_rename_file(cr_RepomdRecord *md, GError **err)
         return CRE_BADARG;
     }
 
-    if (!md->checksum) {
-        g_debug("Record doesn't contain checksum");
-        g_set_error(err, ERR_DOMAIN, CRE_BADARG,
-                    "Record doesn't contain checksum");
-        return CRE_BADARG;
+    char *checksum = md->checksum_header;
+    if( !checksum ) {
+        if (!md->checksum) {
+            g_debug("Record doesn't contain checksum");
+            g_set_error(err, ERR_DOMAIN, CRE_BADARG,
+                        "Record doesn't contain checksum");
+            return CRE_BADARG;
+        }
+        checksum = md->checksum;
     }
 
     location_filename = md->location_real;
@@ -532,7 +568,7 @@ cr_repomd_record_rename_file(cr_RepomdRecord *md, GError **err)
     // Check if the rename is necessary
     // During update with --keep-all-metadata some files (groupfile,
     // updateinfo, ..) could already have checksum in filenames
-    if (g_str_has_prefix(location_filename, md->checksum)) {
+    if (g_str_has_prefix(location_filename, checksum)) {
         // The filename constains valid checksum
         g_free(location_prefix);
         return CRE_OK;
@@ -558,7 +594,7 @@ cr_repomd_record_rename_file(cr_RepomdRecord *md, GError **err)
 
     // Prepare new name
     new_location_real = g_strconcat(location_prefix,
-                                    md->checksum,
+                                    checksum,
                                     "-",
                                     location_filename,
                                     NULL);
@@ -592,7 +628,7 @@ cr_repomd_record_rename_file(cr_RepomdRecord *md, GError **err)
     // Update locations in repomd record
     md->location_real = g_string_chunk_insert(md->chunk, new_location_real);
     new_location_href = g_strconcat(LOCATION_HREF_PREFIX,
-                                    md->checksum,
+                                    checksum,
                                     "-",
                                     location_filename,
                                     NULL);
@@ -616,6 +652,11 @@ cr_repomd_record_load_contentstat(cr_RepomdRecord *record,
     record->checksum_open_type = cr_safe_string_chunk_insert(record->chunk,
                                 cr_checksum_name_str(stats->checksum_type));
     record->size_open = stats->size;
+    record->checksum_header = cr_safe_string_chunk_insert(record->chunk,
+                                                          stats->hdr_checksum);
+    record->checksum_header_type = cr_safe_string_chunk_insert(record->chunk,
+                                   cr_checksum_name_str(stats->hdr_checksum_type));
+    record->size_header = stats->hdr_size;
 }
 
 cr_Repomd *
@@ -791,7 +832,13 @@ record_type_value(const char *type) {
         return 5;
     if (!g_strcmp0(type, "other_db"))
         return 6;
-    return 7;
+    if (!g_strcmp0(type, "primary_zck"))
+        return 7;
+    if (!g_strcmp0(type, "filelists_zck"))
+        return 8;
+    if (!g_strcmp0(type, "other_zck"))
+        return 9;
+    return 10;
 }
 
 static gint
