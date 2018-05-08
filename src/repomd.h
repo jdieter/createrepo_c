@@ -76,6 +76,8 @@ typedef struct {
     char *location_real;        /*!< real path to the file */
     char *location_href;        /*!< location of the file (in repomd.xml) */
     char *location_base;        /*!< base location of the file */
+    char *zck_loc_real;         /*!< real path to zchunk file */
+    char *zck_loc_href;         /*!< location of the zck file (in repomd.xml) */
     char *checksum;             /*!< checksum of file */
     char *checksum_type;        /*!< checksum type */
     char *checksum_open;        /*!< checksum of uncompressed file */
@@ -83,6 +85,7 @@ typedef struct {
     char *checksum_header;      /*!< checksum of header */
     char *checksum_header_type; /*!< checksum type of header */
     gint64 timestamp;           /*!< mtime of the file */
+    gint64 zck_timestamp;       /*!< mtime of the zchunk file */
     gint64 size;                /*!< size of file in bytes */
     gint64 size_open;           /*!< size of uncompressed file in bytes */
     gint64 size_header;         /*!< header size */
@@ -119,8 +122,11 @@ typedef struct {
 /** Creates (alloc) new cr_RepomdRecord object
  * @param type                  Type of record ("primary", "filelists", ..)
  * @param path                  path to the compressed file
+ * @param zck_path              path to the equivalent zchunk file (NULL if
+ *                              there is none)
  */
-cr_RepomdRecord *cr_repomd_record_new(const char *type, const char *path);
+cr_RepomdRecord *cr_repomd_record_new(const char *type, const char *path,
+                                      const char *zck_path);
 
 /** Destroy cr_RepomdRecord object.
  * NOTE: Do NOT use this function on objects attached to cr_Repomd
@@ -182,6 +188,14 @@ int cr_repomd_record_rename_file(cr_RepomdRecord *record, GError **err);
  */
 void cr_repomd_record_load_contentstat(cr_RepomdRecord *record,
                                        cr_ContentStat *stats);
+
+/** Load the zchunk stats (checksum_header, checksum_header_type and size_header)
+ * from the cr_ContentStat object.
+ * @param record                cr_RepomdRecord
+ * @param stats                 cr_ContentStat
+ */
+void cr_repomd_record_load_zck_contentstat(cr_RepomdRecord *record,
+                                           cr_ContentStat *stats);
 
 /** Create new empty cr_Repomd object wich represents content of repomd.xml.
  */

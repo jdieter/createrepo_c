@@ -1069,9 +1069,9 @@ main(int argc, char **argv)
 
     cr_Repomd *repomd_obj = cr_repomd_new();
 
-    cr_RepomdRecord *pri_xml_rec = cr_repomd_record_new("primary", pri_xml_filename);
-    cr_RepomdRecord *fil_xml_rec = cr_repomd_record_new("filelists", fil_xml_filename);
-    cr_RepomdRecord *oth_xml_rec = cr_repomd_record_new("other", oth_xml_filename);
+    cr_RepomdRecord *pri_xml_rec = cr_repomd_record_new("primary", pri_xml_filename, pri_zck_filename);
+    cr_RepomdRecord *fil_xml_rec = cr_repomd_record_new("filelists", fil_xml_filename, fil_zck_filename);
+    cr_RepomdRecord *oth_xml_rec = cr_repomd_record_new("other", oth_xml_filename, oth_zck_filename);
     cr_RepomdRecord *pri_db_rec               = NULL;
     cr_RepomdRecord *fil_db_rec               = NULL;
     cr_RepomdRecord *oth_db_rec               = NULL;
@@ -1088,9 +1088,19 @@ main(int argc, char **argv)
     cr_repomd_record_load_contentstat(fil_xml_rec, fil_stat);
     cr_repomd_record_load_contentstat(oth_xml_rec, oth_stat);
 
+    if(cmd_options->zck_compression) {
+        cr_repomd_record_load_zck_contentstat(pri_xml_rec, pri_zck_stat);
+        cr_repomd_record_load_zck_contentstat(fil_xml_rec, fil_zck_stat);
+        cr_repomd_record_load_zck_contentstat(oth_xml_rec, oth_zck_stat);
+    }
+
     cr_contentstat_free(pri_stat, NULL);
     cr_contentstat_free(fil_stat, NULL);
     cr_contentstat_free(oth_stat, NULL);
+
+    cr_contentstat_free(pri_zck_stat, NULL);
+    cr_contentstat_free(fil_zck_stat, NULL);
+    cr_contentstat_free(oth_zck_stat, NULL);
 
     GThreadPool *fill_pool = g_thread_pool_new(cr_repomd_record_fill_thread,
                                                NULL, 3, FALSE, NULL);
@@ -1116,8 +1126,8 @@ main(int argc, char **argv)
 
     // Groupfile
     if (groupfile) {
-        groupfile_rec = cr_repomd_record_new("group", groupfile);
-        compressed_groupfile_rec = cr_repomd_record_new("group_gz", groupfile);
+        groupfile_rec = cr_repomd_record_new("group", groupfile, NULL);
+        compressed_groupfile_rec = cr_repomd_record_new("group_gz", groupfile, NULL);
         cr_repomd_record_compress_and_fill(groupfile_rec,
                                           compressed_groupfile_rec,
                                           cmd_options->repomd_checksum_type,
@@ -1134,7 +1144,7 @@ main(int argc, char **argv)
 
     // Updateinfo
     if (updateinfo) {
-        updateinfo_rec = cr_repomd_record_new("updateinfo", updateinfo);
+        updateinfo_rec = cr_repomd_record_new("updateinfo", updateinfo, NULL);
         cr_repomd_record_fill(updateinfo_rec,
                               cmd_options->repomd_checksum_type,
                               &tmp_err);
@@ -1210,9 +1220,9 @@ main(int argc, char **argv)
         }
 
         // Prepare repomd records
-        pri_db_rec = cr_repomd_record_new("primary_db", pri_db_name);
-        fil_db_rec = cr_repomd_record_new("filelists_db", fil_db_name);
-        oth_db_rec = cr_repomd_record_new("other_db", oth_db_name);
+        pri_db_rec = cr_repomd_record_new("primary_db", pri_db_name, NULL);
+        fil_db_rec = cr_repomd_record_new("filelists_db", fil_db_name, NULL);
+        oth_db_rec = cr_repomd_record_new("other_db", oth_db_name, NULL);
 
         g_free(pri_db_name);
         g_free(fil_db_name);
@@ -1253,48 +1263,6 @@ main(int argc, char **argv)
         cr_repomdrecordfilltask_free(pri_db_fill_task, NULL);
         cr_repomdrecordfilltask_free(fil_db_fill_task, NULL);
         cr_repomdrecordfilltask_free(oth_db_fill_task, NULL);
-    }
-
-    if(cmd_options->zck_compression) {
-        pri_zck_rec = cr_repomd_record_new("primary_zck", pri_zck_filename);
-        fil_zck_rec = cr_repomd_record_new("filelists_zck", fil_zck_filename);
-        oth_zck_rec = cr_repomd_record_new("other_zck", oth_zck_filename);
-
-        cr_repomd_record_load_contentstat(pri_zck_rec, pri_zck_stat);
-        cr_repomd_record_load_contentstat(fil_zck_rec, fil_zck_stat);
-        cr_repomd_record_load_contentstat(oth_zck_rec, oth_zck_stat);
-
-        cr_contentstat_free(pri_zck_stat, NULL);
-        cr_contentstat_free(fil_zck_stat, NULL);
-        cr_contentstat_free(oth_zck_stat, NULL);
-
-        fill_pool = g_thread_pool_new(cr_repomd_record_fill_thread,
-                                      NULL, 3, FALSE, NULL);
-
-        cr_RepomdRecordFillTask *pri_zck_fill_task;
-        cr_RepomdRecordFillTask *fil_zck_fill_task;
-        cr_RepomdRecordFillTask *oth_zck_fill_task;
-
-        pri_zck_fill_task = cr_repomdrecordfilltask_new(pri_zck_rec,
-                                                        cmd_options->repomd_checksum_type,
-                                                        NULL);
-        g_thread_pool_push(fill_pool, pri_zck_fill_task, NULL);
-
-        fil_zck_fill_task = cr_repomdrecordfilltask_new(fil_zck_rec,
-                                                        cmd_options->repomd_checksum_type,
-                                                        NULL);
-        g_thread_pool_push(fill_pool, fil_zck_fill_task, NULL);
-
-        oth_zck_fill_task = cr_repomdrecordfilltask_new(oth_zck_rec,
-                                                        cmd_options->repomd_checksum_type,
-                                                        NULL);
-        g_thread_pool_push(fill_pool, oth_zck_fill_task, NULL);
-
-        g_thread_pool_free(fill_pool, FALSE, TRUE);
-
-        cr_repomdrecordfilltask_free(pri_zck_fill_task, NULL);
-        cr_repomdrecordfilltask_free(fil_zck_fill_task, NULL);
-        cr_repomdrecordfilltask_free(oth_zck_fill_task, NULL);
     }
 
 #ifdef CR_DELTA_RPM_SUPPORT
@@ -1383,7 +1351,7 @@ main(int argc, char **argv)
         prestodelta_cr_file = NULL;
 
         // 4) Prepare repomd record
-        prestodelta_rec = cr_repomd_record_new("prestodelta", prestodelta_xml_filename);
+        prestodelta_rec = cr_repomd_record_new("prestodelta", prestodelta_xml_filename, NULL);
         cr_repomd_record_load_contentstat(prestodelta_rec, prestodelta_stat);
         cr_repomd_record_fill(prestodelta_rec, cmd_options->repomd_checksum_type, NULL);
 

@@ -417,9 +417,9 @@ compress_sqlite_dbs(const gchar *tmp_out_repo,
     cr_rm(oth_db_filename, CR_RM_FORCE, NULL, NULL);
 
     // Prepare repomd records
-    pri_db_rec = cr_repomd_record_new("primary_db", pri_db_name);
-    fil_db_rec = cr_repomd_record_new("filelists_db", fil_db_name);
-    oth_db_rec = cr_repomd_record_new("other_db", oth_db_name);
+    pri_db_rec = cr_repomd_record_new("primary_db", pri_db_name, NULL);
+    fil_db_rec = cr_repomd_record_new("filelists_db", fil_db_name, NULL);
+    oth_db_rec = cr_repomd_record_new("other_db", oth_db_name, NULL);
 
     *in_pri_db_rec = pri_db_rec;
     *in_fil_db_rec = fil_db_rec;

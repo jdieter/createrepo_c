@@ -87,10 +87,28 @@ cr_xml_dump_repomd_record(xmlNodePtr root, cr_RepomdRecord *rec)
                       BAD_CAST "xml:base",
                       BAD_CAST rec->location_base);
 
+    // Zchunk location element
+    if(rec->zck_loc_href) {
+        node = xmlNewChild(data,
+                           NULL,
+                           BAD_CAST "zck-location",
+                           NULL);
+        cr_xmlNewProp(node,
+                      BAD_CAST "href",
+                      BAD_CAST rec->zck_loc_href);
+    }
+
     // Timestamp element
     g_snprintf(str_buffer, DATESIZE_STR_MAX_LEN,
                "%"G_GINT64_FORMAT, rec->timestamp);
     xmlNewChild(data, NULL, BAD_CAST "timestamp", BAD_CAST str_buffer);
+
+    // Zchunk timestamp element
+    if(rec->zck_timestamp) {
+        g_snprintf(str_buffer, DATESIZE_STR_MAX_LEN,
+                   "%"G_GINT64_FORMAT, rec->zck_timestamp);
+        xmlNewChild(data, NULL, BAD_CAST "zck-timestamp", BAD_CAST str_buffer);
+    }
 
     // Size element
     g_snprintf(str_buffer, DATESIZE_STR_MAX_LEN,

@@ -255,7 +255,8 @@ cr_modifyrepo(GSList *modifyrepotasks, gchar *repopath, GError **err)
             continue;
 
         cr_RepomdRecord *rec = cr_repomd_record_new(task->type,
-                                                    task->repopath);
+                                                    task->repopath,
+                                                    NULL);
         cr_RepomdRecordFillTask *filltask = cr_repomdrecordfilltask_new(rec,
                                             task->checksum_type, NULL);
         g_thread_pool_push(fill_pool, filltask, NULL);

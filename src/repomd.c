@@ -53,18 +53,26 @@ cr_distrotag_new()
 }
 
 cr_RepomdRecord *
-cr_repomd_record_new(const char *type, const char *path)
+cr_repomd_record_new(const char *type, const char *path, const char *zck_path)
 {
     cr_RepomdRecord *md = g_malloc0(sizeof(*md));
     md->chunk = g_string_chunk_new(128);
     md->type  = cr_safe_string_chunk_insert(md->chunk, type);
     md->size_open = G_GINT64_CONSTANT(-1);
+    md->size_header = G_GINT64_CONSTANT(-1);
 
     if (path) {
         gchar *filename = cr_get_filename(path);
         gchar *location_href = g_strconcat(LOCATION_HREF_PREFIX, filename, NULL);
         md->location_real = g_string_chunk_insert(md->chunk, path);
         md->location_href = g_string_chunk_insert(md->chunk, location_href);
+        g_free(location_href);
+    }
+    if (zck_path) {
+        gchar *filename = cr_get_filename(zck_path);
+        gchar *location_href = g_strconcat(LOCATION_HREF_PREFIX, filename, NULL);
+        md->zck_loc_real = g_string_chunk_insert(md->chunk, zck_path);
+        md->zck_loc_href = g_string_chunk_insert(md->chunk, location_href);
         g_free(location_href);
     }
 
@@ -88,13 +96,17 @@ cr_repomd_record_copy(const cr_RepomdRecord *orig)
 
     if (!orig) return NULL;
 
-    rec = cr_repomd_record_new(orig->type, NULL);
+    rec = cr_repomd_record_new(orig->type, NULL, NULL);
     rec->location_real      = cr_safe_string_chunk_insert(rec->chunk,
                                                 orig->location_real);
     rec->location_href      = cr_safe_string_chunk_insert(rec->chunk,
                                                 orig->location_href);
     rec->location_base      = cr_safe_string_chunk_insert(rec->chunk,
                                                 orig->location_base);
+    rec->zck_loc_real       = cr_safe_string_chunk_insert(rec->chunk,
+                                                orig->zck_loc_real);
+    rec->zck_loc_href       = cr_safe_string_chunk_insert(rec->chunk,
+                                                orig->zck_loc_href);
     rec->checksum           = cr_safe_string_chunk_insert(rec->chunk,
                                                 orig->checksum);
     rec->checksum_type      = cr_safe_string_chunk_insert(rec->chunk,
@@ -183,9 +195,15 @@ cr_get_compressed_content_stat(const char *filename,
 
     contentStat* result = g_malloc(sizeof(contentStat));
     if (result) {
-        result->hdr_checksum = cwfile->stat->hdr_checksum;
-        result->hdr_checksum_type = cwfile->stat->hdr_checksum_type;
-        result->hdr_size = cwfile->stat->hdr_size;
+        if(cwfile->stat) {
+            result->hdr_checksum = cwfile->stat->hdr_checksum;
+            result->hdr_checksum_type = cwfile->stat->hdr_checksum_type;
+            result->hdr_size = cwfile->stat->hdr_size;
+        } else {
+            result->hdr_checksum = NULL;
+            result->hdr_checksum_type = 0;
+            result->hdr_size = G_GINT64_CONSTANT(-1);
+        }
         result->checksum = cr_checksum_final(checksum, NULL);
         result->size = size;
     } else {
@@ -206,6 +224,7 @@ cr_repomd_record_fill(cr_RepomdRecord *md,
     const char *checksum_str;
     cr_ChecksumType checksum_t;
     gchar *path;
+    gchar *zck_path = NULL;
     GError *tmp_err = NULL;
 
     assert(md);
@@ -218,6 +237,8 @@ cr_repomd_record_fill(cr_RepomdRecord *md,
     }
 
     path = md->location_real;
+    if(md->zck_loc_real && strlen(md->zck_loc_real))
+        zck_path = md->zck_loc_real;
 
     checksum_str = cr_checksum_name_str(checksum_type);
     checksum_t = checksum_type;
@@ -265,7 +286,6 @@ cr_repomd_record_fill(cr_RepomdRecord *md,
         {
             // File compressed by supported algorithm
             contentStat *open_stat = NULL;
-            const char *hdr_checksum_str;
 
             open_stat = cr_get_compressed_content_stat(path, checksum_t, &tmp_err);
             if (tmp_err) {
@@ -280,9 +300,14 @@ cr_repomd_record_fill(cr_RepomdRecord *md,
             md->checksum_open = g_string_chunk_insert(md->chunk, open_stat->checksum);
             if (md->size_open == G_GINT64_CONSTANT(-1))
                 md->size_open = open_stat->size;
-            hdr_checksum_str = cr_checksum_name_str(open_stat->hdr_checksum_type);
-            md->checksum_header_type = g_string_chunk_insert(md->chunk, hdr_checksum_str);
-            md->checksum_header = g_string_chunk_insert(md->chunk, open_stat->hdr_checksum);
+            if(open_stat->hdr_checksum_type) {
+                const char *hdr_checksum_str = cr_checksum_name_str(open_stat->hdr_checksum_type);
+                md->checksum_header_type = g_string_chunk_insert(md->chunk, hdr_checksum_str);
+                md->checksum_header = g_string_chunk_insert(md->chunk, open_stat->hdr_checksum);
+            } else {
+                md->checksum_header_type = 0;
+                md->checksum_header = NULL;
+            }
             if (md->size_header == G_GINT64_CONSTANT(-1))
                 md->size_header = open_stat->hdr_size;
             g_free(open_stat->hdr_checksum);
@@ -319,6 +344,19 @@ cr_repomd_record_fill(cr_RepomdRecord *md,
             g_warning("%s: Stat on file \"%s\" failed", __func__, path);
             g_set_error(err, ERR_DOMAIN, CRE_STAT,
                         "Stat() on %s failed: %s", path, g_strerror(errno));
+            return CRE_STAT;
+        }
+    }
+    if (zck_path && !md->zck_timestamp) {
+        struct stat buf;
+        if (!stat(zck_path, &buf)) {
+            if (!md->zck_timestamp) {
+                md->zck_timestamp = buf.st_mtime;
+            }
+        } else {
+            g_warning("%s: Stat on file \"%s\" failed", __func__, zck_path);
+            g_set_error(err, ERR_DOMAIN, CRE_STAT,
+                        "Stat() on %s failed: %s", zck_path, g_strerror(errno));
             return CRE_STAT;
         }
     }
@@ -503,8 +541,13 @@ cr_repomd_record_compress_and_fill(cr_RepomdRecord *record,
     crecord->checksum_type = g_string_chunk_insert(crecord->chunk, checksum_str);
     crecord->checksum_open = g_string_chunk_insert(record->chunk, checksum);
     crecord->checksum_open_type = g_string_chunk_insert(record->chunk, checksum_str);
-    crecord->checksum_header = g_string_chunk_insert(crecord->chunk, hdrchecksum);
-    crecord->checksum_header_type = g_string_chunk_insert(crecord->chunk, hdr_checksum_str);
+    if(hdr_checksum_str) {
+        crecord->checksum_header = g_string_chunk_insert(crecord->chunk, hdrchecksum);
+        crecord->checksum_header_type = g_string_chunk_insert(crecord->chunk, hdr_checksum_str);
+    } else {
+        crecord->checksum_header = NULL;
+        crecord->checksum_header_type = 0;
+    }
     crecord->timestamp = cgf_time;
     crecord->size = cgf_size;
     crecord->size_open = gf_size;
@@ -518,8 +561,9 @@ end:
     return ret;
 }
 
-int
-cr_repomd_record_rename_file(cr_RepomdRecord *md, GError **err)
+static int
+rename_file(gchar **location_real, gchar **location_href, char *checksum,
+            cr_RepomdRecord *md, GError **err)
 {
     int x, len;
     gchar *location_prefix = NULL;
@@ -528,35 +572,15 @@ cr_repomd_record_rename_file(cr_RepomdRecord *md, GError **err)
     gchar *new_location_real;
 
     assert(!err || *err == NULL);
+    assert(*location_real && *location_href);
 
-    if (!md)
-        return CRE_OK;
+    location_filename = *location_real;
 
-    if (!(md->location_real) || !strlen(md->location_real)) {
-        g_debug("Empty locations in repomd record object");
-        g_set_error(err, ERR_DOMAIN, CRE_BADARG,
-                    "Empty locations in repomd record object");
-        return CRE_BADARG;
-    }
-
-    char *checksum = md->checksum_header;
-    if( !checksum ) {
-        if (!md->checksum) {
-            g_debug("Record doesn't contain checksum");
-            g_set_error(err, ERR_DOMAIN, CRE_BADARG,
-                        "Record doesn't contain checksum");
-            return CRE_BADARG;
-        }
-        checksum = md->checksum;
-    }
-
-    location_filename = md->location_real;
-
-    x = strlen(md->location_real);
+    x = strlen(*location_real);
     for (; x > 0; x--) {
-        if (md->location_real[x] == '/') {
-            location_prefix = g_strndup(md->location_real, x+1);
-            location_filename = cr_get_filename(md->location_real+x+1);
+        if ((*location_real)[x] == '/') {
+            location_prefix = g_strndup(*location_real, x+1);
+            location_filename = cr_get_filename(*location_real+x+1);
             break;
         }
     }
@@ -613,31 +637,73 @@ cr_repomd_record_rename_file(cr_RepomdRecord *md, GError **err)
             return CRE_IO;
         }
     }
-    if (rename(md->location_real, new_location_real)) {
+    if (rename(*location_real, new_location_real)) {
         g_critical("%s: Cannot rename %s to %s",
                    __func__,
-                   md->location_real,
+                   *location_real,
                    new_location_real);
         g_set_error(err, ERR_DOMAIN, CRE_IO,
-                    "Cannot rename %s to %s", md->location_real,
+                    "Cannot rename %s to %s", *location_real,
                     new_location_real);
         g_free(new_location_real);
         return CRE_IO;
     }
 
     // Update locations in repomd record
-    md->location_real = g_string_chunk_insert(md->chunk, new_location_real);
+    *location_real = g_string_chunk_insert(md->chunk, new_location_real);
     new_location_href = g_strconcat(LOCATION_HREF_PREFIX,
                                     checksum,
                                     "-",
                                     location_filename,
                                     NULL);
-    md->location_href = g_string_chunk_insert(md->chunk, new_location_href);
+    *location_href = g_string_chunk_insert(md->chunk, new_location_href);
 
     g_free(new_location_real);
     g_free(new_location_href);
 
     return CRE_OK;
+}
+
+int
+cr_repomd_record_rename_file(cr_RepomdRecord *md, GError **err)
+{
+    assert(!err || *err == NULL);
+
+    if (!md)
+        return CRE_OK;
+
+    if (!(md->location_real) || !strlen(md->location_real)) {
+        g_debug("Empty locations in repomd record object");
+        g_set_error(err, ERR_DOMAIN, CRE_BADARG,
+                    "Empty locations in repomd record object");
+        return CRE_BADARG;
+    }
+
+    if (!md->checksum) {
+        g_debug("Record doesn't contain checksum");
+        g_set_error(err, ERR_DOMAIN, CRE_BADARG,
+                    "Record doesn't contain checksum");
+        return CRE_BADARG;
+    }
+    char *checksum = md->checksum;
+
+    int retval = rename_file(&(md->location_real), &(md->location_href),
+                             checksum, md, err);
+    if(retval != CRE_OK)
+        return retval;
+
+    if (md->zck_loc_href) {
+        checksum = md->checksum_header;
+        if( !checksum ) {
+            g_debug("Record doesn't contain zchunk checksum");
+            g_set_error(err, ERR_DOMAIN, CRE_BADARG,
+                        "Record doesn't contain zchunk checksum");
+            return CRE_BADARG;
+        }
+        int retval = rename_file(&(md->zck_loc_real), &(md->zck_loc_href),
+                                 checksum, md, err);
+    }
+    return retval;
 }
 
 void
@@ -652,6 +718,15 @@ cr_repomd_record_load_contentstat(cr_RepomdRecord *record,
     record->checksum_open_type = cr_safe_string_chunk_insert(record->chunk,
                                 cr_checksum_name_str(stats->checksum_type));
     record->size_open = stats->size;
+}
+
+void
+cr_repomd_record_load_zck_contentstat(cr_RepomdRecord *record,
+                                      cr_ContentStat *stats)
+{
+    if (!stats)
+        return;
+
     record->checksum_header = cr_safe_string_chunk_insert(record->chunk,
                                                           stats->hdr_checksum);
     record->checksum_header_type = cr_safe_string_chunk_insert(record->chunk,

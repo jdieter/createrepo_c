@@ -174,7 +174,7 @@ cr_start_handler(void *pdata, const char *element, const char **attr)
             val = "unknown";
         }
 
-        pd->repomdrecord = cr_repomd_record_new(val, NULL);
+        pd->repomdrecord = cr_repomd_record_new(val, NULL, NULL);
         cr_repomd_set_record(pd->repomd, pd->repomdrecord);
         break;
 

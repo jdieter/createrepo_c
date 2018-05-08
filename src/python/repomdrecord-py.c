@@ -104,7 +104,7 @@ repomdrecord_init(_RepomdRecordObject *self,
         cr_repomd_record_free(self->record);
 
     /* Init */
-    self->record = cr_repomd_record_new(type, path);
+    self->record = cr_repomd_record_new(type, path, NULL);
     if (self->record == NULL) {
         PyErr_SetString(CrErr_Exception, "RepomdRecord initialization failed");
         return -1;
